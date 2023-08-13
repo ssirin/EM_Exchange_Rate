@@ -1,1 +1,365 @@
+ ** before running this file, run xtpmg2.ado file
+ ** Also instal xtdcee2 package for cross-sectional analysis
+ 
+use "H:\PhDThesis\ExchangeRateAnalysis\Section 4 ARDL Panel Analysis\section_4_ardl_analysis.dta", clear 
+** CBT Governors
+rename *, lower
+encode governor, gen(gvrn)
+
+xtset hour timevar
+ 
+** Check data balance
+spbalance
+
+** Correlation between daily variables 
+correlate lnrusdtl lnrttf lnrrcp if hour ==0
+ 
+
+** Create Variables for Analysis
+** Prosurplusnorm is normalized with data
+gen PSN  = prosurplusnorm
+gen lnPSN = ln(PSN) if prosurplusnorm > 0
+replace lnPSN = 0 if missing(lnPSN)
+
+**Generate difference variables for the analysis
+gen dptf = D.lnrptftl
+gen drttf = D.lnrttf
+gen dusdtl = D.lnrusdtl
+
+*** Now create variables for negative and positive changes in exchange rate for Non-linear ARDL analysis
+
+gen dusdtlneg = dusdtl if dusdtl < 0
+replace dusdtlneg = 0 if dusdtl >= 0
+replace dusdtlneg = . if missing(dusdtl)
+
+gen dusdtlpos = dusdtl if dusdtl > 0
+replace dusdtlpos = 0 if dusdtl <= 0
+replace dusdtlpos = . if missing(dusdtl)
+
+bysort hour (timevar) : gen lnrusdtlneg = sum(dusdtlneg)
+bysort hour (timevar) : gen lnrusdtlpos = sum(dusdtlpos)
+
+** First stage, apply unit root tests for aech variable
+** Unit root tests for non-hourly variables
+
+local vardaily "lnrusdtl lnrttf lnrrcp"
+// Loop over the variables
+foreach var of local vardaily {
+    // Conduct the Unit root tests tests
+	display as text "----------------------------------------------------------------------------------------------" 
+	display as text "ADF Unit Root test results (None) for `var':" 
+	dfuller `var' if hour == 0, lags(30) 
+	
+	
+	display as text "----------------------------------------------------------------------------------------------" 
+	display as text "ADF Unit Root test results (Drift) for `var':" 
+	dfuller `var' if hour == 0, lags(30) drift 
+	
+	
+	display as text "----------------------------------------------------------------------------------------------" 
+	display as text "ADF Unit Root test results (Trend) for `var':" 
+    dfuller `var' if hour == 0, lags(30) trend  
+	
+}
+ 
+** Unit root tests for hourly variables 
+local varhour "lnrptftl lnresdemand lnwind lnriver"
+// Loop over the variables
+foreach var of local varhour {
+	forvalues i = 0/23 {
+		display as text "----------------------------------------------------------------------------------------------" 
+		display as text "ADF Unit Root test results (None) for `var' for Hour = `i':" 
+		dfuller `var' if hour == `i', lags(30) 
+		
+		display as text "----------------------------------------------------------------------------------------------" 
+		display as text "ADF Unit Root test results (Drift) for `var' for Hour = `i':"
+		dfuller `var' if hour == `i', lags(30) drift 
+		
+		display as text "----------------------------------------------------------------------------------------------" 
+		display as text "ADF Unit Root test results (Trend) for `var' for Hour = `i':"
+		dfuller `var' if hour == `i', lags(30) trend 
+		
+}
+    
+}
+ 
+ *******************************************************************************
+ ***************PANEL DATA ANALYSIS *******************************************
+ **************************************************************************** 
+ 
+ ** Hourly unit-root tests for panel data
+local vars "lnrptftl lnresdemand lnwind lnriver"
+// Loop over the variables
+foreach var of local vars {
+	** Conduct LLC tests N/T -> 0 asymptotically
+	xtunitroot llc `var', lags(bic 30) 
+    xtunitroot llc `var', lags(bic 30) trend
+    ** Conduct Fisher tests Dfulelr and perron
+	xtunitroot fisher `var', dfuller lags(30) 
+    xtunitroot fisher `var', dfuller lags(30) drift 
+    xtunitroot fisher `var', dfuller lags(30) trend
+	xtunitroot fisher `var', dfuller lags(30) demean
+	
+	xtunitroot fisher `var', pperron lags(30) 
+    xtunitroot fisher `var', pperron lags(30) trend
+}
+ 
+** Now control for optimal lags for analysis
+** select lags for market price
+ forvalues i = 0/23 {
+	 display as text "Results for Hour = `i': " 
+	 varsoc lnrptftl if hour == `i',  maxlag(30)	
+ }
+
+** this test also helps to select optimal lags for the analysis, this test indicates 14 lags
+xtunitroot llc lnrptftl, lags(bic 30) 
+xtunitroot llc lnrptftl, lags(bic 30) trend
+ 
+** This is used to to select lag cvalues for usd and rttf. We look BIC values 
+varsoc lnrusdtl if hour == 1,  maxlag(30)
+varsoc lnrttf if hour == 1,  maxlag(30)
+
+varsoc D.lnrusdtl if hour == 1,  maxlag(30)
+varsoc D.lnrttf if hour == 1,  maxlag(30)
+
+
+** Now Conduct Panel Cointegration Tests
+xtcointtest westerlund lnrptftl lnrusdtl 
+xtcointtest westerlund lnrptftl lnrusdtl, allpanels
+xtcointtest westerlund lnrptftl lnrusdtl, trend
+xtcointtest westerlund lnrptftl lnrusdtl, trend allpanels
+
+** Now conduct the same analysis for normalized producer surplus
+** First stage, apply ardl for each hour separately ** control for unit root problem
+  
+local vardaily "lnPSN"
+// Loop over the variables
+foreach var of local vardaily {
+    forvalues i = 0/23 {
+    // Conduct the Unit root tests tests
+	display as text "----------------------------------------------------------------------------------------------" 
+	display as text "ADF Unit Root test results (None) for `var' for Hour = `i':" 
+	dfuller `var' if hour == `i', lags(30) 
+	
+	display as text "----------------------------------------------------------------------------------------------" 
+	display as text "ADF Unit Root test results (Drift) for `var' for Hour = `i':" 
+	dfuller `var' if hour == `i', lags(30) drift 
+	
+	display as text "----------------------------------------------------------------------------------------------" 
+	display as text "ADF Unit Root test results (Trend) for `var' for Hour = `i':" 
+    dfuller `var' if hour == `i', lags(30) trend  
+	
+	}
+}
+
+** Start with an ARDL model that includes potential cointegrating relationships  model that does not include cross-sectional dependence  Because of serial correlation problem, we also include the lagged values of the dependent variable. In error correction parametrization we can write as
+
+xi: xtdcce2 lnrptftl lnresdemand L.drttf lnwind lnriver L.wvol mpr covid  i.gvrn i.month weekend i.year, lr(L(1/7).lnrptftl L.lnrusdtl) nocross lr_options(ardl) 
+est sto panardl1, title("Model 1")
+test lr_lnrusdtl = 1
+
+** Now, test with further models and extend them, we take higher lags for usd and rttf
+xi: qui xtdcce2 lnrptftl lnresdemand L(1/7).drttf lnwind lnriver L.wvol mpr covid  i.gvrn i.month weekend i.year, lr(L(1/7).lnrptftl L.lnrusdtl) nocross lr_options(ardl) 
+est sto panardl2, title("Model 2")
+test lr_lnrusdtl = 1
+
+** Now, test with further models and extend them, we take higher lags for usd and rttf
+xi: qui xtdcce2 lnrptftl lnresdemand L(1/7).drttf lnwind lnriver L.wvol mpr covid  i.gvrn i.month weekend i.year, lr(L(1/7).lnrptftl L(1/7).lnrusdtl) nocross lr_options(ardl) 
+est sto panardl3, title("Model 3")
+test lr_lnrusdtl = 1
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand L(1/7).drttf lnwind lnriver L.wvol mpr covid  i.gvrn i.month weekend i.year, lr(L(1/14).lnrptftl L.lnrusdtl) nocross lr_options(ardl) 
+est sto panardl4, title("Model 4")
+test lr_lnrusdtl = 1
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+
+xi: qui xtdcce2 lnrptftl lnresdemand L(1/7).drttf lnwind lnriver L.wvol mpr covid  i.gvrn i.month weekend i.year, lr(L(1/14).lnrptftl L(1/7).lnrusdtl) nocross lr_options(ardl) 
+est sto panardl5, title("Model 5")
+test lr_lnrusdtl = 1
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand L(1/7).drttf lnwind lnriver L.wvol mpr covid i.gvrn i.month weekend i.year, lr(L(1/21).lnrptftl L.lnrusdtl) nocross lr_options(ardl) 
+est sto panardl6, title("Model 6")
+test lr_lnrusdtl = 1
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand L(1/7).drttf lnwind lnriver L.wvol mpr covid i.gvrn i.month weekend i.year, lr(L(1/21).lnrptftl L(1/7).lnrusdtl) nocross lr_options(ardl) 
+est sto panardl7, title("Model 7")
+test lr_lnrusdtl = 1
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand L(1/7).drttf lnwind lnriver L.wvol mpr covid i.gvrn i.month weekend i.year, lr(L(1/30).lnrptftl L.lnrusdtl) nocross lr_options(ardl) 
+est sto panardl8, title("Model 8")
+test lr_lnrusdtl = 1
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand L(1/7).drttf lnwind lnriver L.wvol mpr covid i.gvrn i.month weekend i.year, lr(L(1/30).lnrptftl L(1/7).lnrusdtl) nocross lr_options(ardl) 
+est sto panardl9, title("Model 9")
+test lr_lnrusdtl = 1
+
+cd "H:\PhDThesis\ExchangeRateAnalysis\Section 4 ARDL Panel Analysis\" 
+estout panardl1 panardl2 panardl3 panardl4 panardl5 panardl6 panardl7 panardl8 panardl9	using panel_ardl_results.txt, style(tex) cells(b(star fmt(3)) se(par fmt(2))) stats(r2 r2_pmg rmse N) label legend replace
+
+
+** Now, we conduct the same analysis with NARDL Model
+
+** Start with an ARDL model that includes potential cointegrating relationships  model that does not include cross-sectional dependence  Because of serial correlation problem, we also include the lagged values of the dependent variable. In error correction parametrization we can write as
+
+xi: qui xtdcce2 lnrptftl lnresdemand  L.drttf lnwind lnriver L.wvol mpr covid  i.gvrn i.month weekend i.year, lr(L(1/7).lnrptftl L.lnrusdtlpos L.lnrusdtlneg) nocross lr_options(ardl) 
+est sto nardl1, title("Model 1")
+test lr_lnrusdtlpos = lr_lnrusdtlneg
+
+** Now, test with further models and extend them, we take higher lags for usd and rttf
+xi: qui xtdcce2 lnrptftl lnresdemand L(1/7).drttf lnwind lnriver L.wvol mpr covid  i.gvrn i.month weekend i.year, lr(L(1/7).lnrptftl L.lnrusdtlpos L.lnrusdtlneg) nocross lr_options(ardl) 
+est sto nardl2, title("Model 2")
+test lr_lnrusdtlpos = lr_lnrusdtlneg
+
+** Now, test with further models and extend them, we take higher lags for usd and rttf
+xi: qui xtdcce2 lnrptftl lnresdemand L(1/7).drttf lnwind lnriver L.wvol mpr covid  i.gvrn i.month weekend i.year, lr(L(1/7).lnrptftl L(1/7).lnrusdtlpos L(1/7).lnrusdtlneg) nocross lr_options(ardl) 
+est sto nardl3, title("Model 3")
+test lr_lnrusdtlpos = lr_lnrusdtlneg
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand lnwind lnriver L(1/7).drttf L.wvol mpr covid i.gvrn i.month weekend i.year, lr(L(1/14).lnrptftl L.lnrusdtlpos L.lnrusdtlneg) nocross lr_options(ardl)
+est sto nardl4, title("Model 4")
+test lr_lnrusdtlpos = lr_lnrusdtlneg
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+
+xi: qui xtdcce2 lnrptftl lnresdemand L(1/7).drttf lnwind lnriver L.wvol  mpr covid i.gvrn i.month weekend i.year, lr(L(1/14).lnrptftl L(1/7).lnrusdtlpos L(1/7).lnrusdtlneg) nocross lr_options(ardl)
+est sto nardl5, title("Model 5")
+test lr_lnrusdtlpos = lr_lnrusdtlneg
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand L(1/7).drttf lnwind lnriver L.wvol  mpr covid i.gvrn i.month weekend i.year, lr(L(1/21).lnrptftl L.lnrusdtlpos L.lnrusdtlneg) nocross lr_options(ardl)
+est sto nardl6, title("Model 6")
+test lr_lnrusdtlpos = lr_lnrusdtlneg
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand L(1/7).drttf lnwind lnriver  L.wvol  mpr covid i.gvrn i.month weekend i.year, lr(L(1/21).lnrptftl L(1/7).lnrusdtlpos L(1/7).lnrusdtlneg) nocross lr_options(ardl)
+est sto nardl7, title("Model 7")
+test lr_lnrusdtlpos = lr_lnrusdtlneg
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand L(1/7).drttf lnwind lnriver L.wvol mpr covid  i.gvrn i.month weekend i.year, lr(L(1/30).lnrptftl L.lnrusdtlpos L.lnrusdtlneg) nocross lr_options(ardl)
+est sto nardl8, title("Model 8")
+test lr_lnrusdtlpos = lr_lnrusdtlneg
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand L(1/7).drttf lnwind lnriver L.wvol  mpr covid i.gvrn i.month weekend i.year, lr(L(1/30).lnrptftl L(1/7).lnrusdtlpos L(1/7).lnrusdtlneg) nocross lr_options(ardl)
+est sto nardl9, title("Model 9")
+test lr_lnrusdtlpos = lr_lnrusdtlneg
+
+cd "H:\PhDThesis\ExchangeRateAnalysis\Section 4 ARDL Panel Analysis\" 
+estout nardl1 nardl2 nardl3 nardl4 nardl5 nardl6 nardl7 nardl8 nardl9 using panel_nardl_results.txt, style(tex) cells(b(star fmt(3)) se(par fmt(2))) stats(r2 r2_pmg rmse N) label legend replace
+
+
+**** NOW INCLUDE GAS PRICE AS COINTEGRATION; ROBUSTNESS CHECK
+
+
+** Start with an ARDL model that includes potential cointegrating relationships  model that does not include cross-sectional dependence  Because of serial correlation problem, we also include the lagged values of the dependent variable. In error correction parametrization we can write as
+
+xi: xtdcce2 lnrptftl lnresdemand  lnwind lnriver L.wvol mpr covid  i.gvrn i.month weekend i.year, lr(L(1/7).lnrptftl L.lnrusdtl) nocross lr_options(ardl) 
+est sto panardl11, title("Model 1")
+test lr_lnrusdtl = 1
+
+** Now, test with further models and extend them, we take higher lags for usd and rttf
+xi: qui xtdcce2 lnrptftl lnresdemand lnwind lnriver L.wvol mpr covid  i.gvrn i.month weekend i.year, lr(L(1/7).lnrptftl L.lnrusdtl L.lnrttf) nocross lr_options(ardl) 
+est sto panardl21, title("Model 2")
+test lr_lnrusdtl = 1
+
+** Now, test with further models and extend them, we take higher lags for usd and rttf
+xi: qui xtdcce2 lnrptftl lnresdemand lnwind lnriver L.wvol mpr covid  i.gvrn i.month weekend i.year, lr(L(1/7).lnrptftl L(1/7).lnrusdtl L(1/7).lnrttf) nocross lr_options(ardl) 
+est sto panardl31, title("Model 3")
+test lr_lnrusdtl = 1
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand lnwind lnriver L.wvol mpr covid  i.gvrn i.month weekend i.year, lr(L(1/14).lnrptftl L.lnrusdtl L.lnrttf) nocross lr_options(ardl) 
+est sto panardl41, title("Model 4")
+test lr_lnrusdtl = 1
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+
+xi: qui xtdcce2 lnrptftl lnresdemand lnwind lnriver L.wvol mpr covid  i.gvrn i.month weekend i.year, lr(L(1/14).lnrptftl L(1/7).lnrusdtl L(1/7).lnrttf) nocross lr_options(ardl) 
+est sto panardl51, title("Model 5")
+test lr_lnrusdtl = 1
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand lnwind lnriver L.wvol mpr covid i.gvrn i.month weekend i.year, lr(L(1/21).lnrptftl L.lnrusdtl L.lnrttf) nocross lr_options(ardl) 
+est sto panardl61, title("Model 6")
+test lr_lnrusdtl = 1
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand lnwind lnriver L.wvol mpr covid i.gvrn i.month weekend i.year, lr(L(1/21).lnrptftl L(1/7).lnrusdtl L(1/7).lnrttf) nocross lr_options(ardl) 
+est sto panardl71, title("Model 7")
+test lr_lnrusdtl = 1
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand lnwind lnriver L.wvol mpr covid i.gvrn i.month weekend i.year, lr(L(1/30).lnrptftl L.lnrusdtl L.lnrttf) nocross lr_options(ardl) 
+est sto panardl81, title("Model 8")
+test lr_lnrusdtl = 1
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand lnwind lnriver L.wvol mpr covid i.gvrn i.month weekend i.year, lr(L(1/30).lnrptftl L(1/7).lnrusdtl L(1/7).lnrttf) nocross lr_options(ardl) 
+est sto panardl91, title("Model 9")
+test lr_lnrusdtl = 1
+
+cd "H:\PhDThesis\ExchangeRateAnalysis\Section 4 ARDL Panel Analysis\" 
+estout panardl11 panardl21 panardl31 panardl41 panardl51 panardl61 panardl71 panardl81 panardl91	using panel_ardl_ngas_results.txt, style(tex) cells(b(star fmt(3)) se(par fmt(2))) stats(r2 r2_pmg rmse N) label legend replace
+
+
+** Now, we conduct the same analysis with NARDL Model
+
+** Start with an ARDL model that includes potential cointegrating relationships  model that does not include cross-sectional dependence  Because of serial correlation problem, we also include the lagged values of the dependent variable. In error correction parametrization we can write as
+
+xi: qui xtdcce2 lnrptftl lnresdemand lnwind lnriver L.wvol mpr covid  i.gvrn i.month weekend i.year, lr(L(1/7).lnrptftl L.lnrusdtlpos L.lnrusdtlneg) nocross lr_options(ardl) 
+est sto nardl11, title("Model 1")
+test lr_lnrusdtlpos = lr_lnrusdtlneg
+
+** Now, test with further models and extend them, we take higher lags for usd and rttf
+xi: qui xtdcce2 lnrptftl lnresdemand lnwind lnriver L.wvol mpr covid  i.gvrn i.month weekend i.year, lr(L(1/7).lnrptftl L.lnrusdtlpos L.lnrusdtlneg L.lnrttf) nocross lr_options(ardl) 
+est sto nardl21, title("Model 2")
+test lr_lnrusdtlpos = lr_lnrusdtlneg
+
+** Now, test with further models and extend them, we take higher lags for usd and rttf
+xi: qui xtdcce2 lnrptftl lnresdemand lnwind lnriver L.wvol mpr covid  i.gvrn i.month weekend i.year, lr(L(1/7).lnrptftl L(1/7).lnrusdtlpos L(1/7).lnrusdtlneg L(1/7).lnrttf) nocross lr_options(ardl) 
+est sto nardl31, title("Model 3")
+test lr_lnrusdtlpos = lr_lnrusdtlneg
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand lnwind lnriver L.wvol mpr covid i.gvrn i.month weekend i.year, lr(L(1/14).lnrptftl L.lnrusdtlpos L.lnrusdtlneg L.lnrttf) nocross lr_options(ardl)
+est sto nardl41, title("Model 4")
+test lr_lnrusdtlpos = lr_lnrusdtlneg
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+
+xi: qui xtdcce2 lnrptftl lnresdemand lnwind lnriver L.wvol  mpr covid i.gvrn i.month weekend i.year, lr(L(1/14).lnrptftl L(1/7).lnrusdtlpos L(1/7).lnrusdtlneg L(1/7).lnrttf) nocross lr_options(ardl)
+est sto nardl51, title("Model 5")
+test lr_lnrusdtlpos = lr_lnrusdtlneg
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand lnwind lnriver L.wvol  mpr covid i.gvrn i.month weekend i.year, lr(L(1/21).lnrptftl L.lnrusdtlpos L.lnrusdtlneg L.lnrttf) nocross lr_options(ardl)
+est sto nardl61, title("Model 6")
+test lr_lnrusdtlpos = lr_lnrusdtlneg
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand lnwind lnriver  L.wvol  mpr covid i.gvrn i.month weekend i.year, lr(L(1/21).lnrptftl L(1/7).lnrusdtlpos L(1/7).lnrusdtlneg L(1/7).lnrttf) nocross lr_options(ardl)
+est sto nardl71, title("Model 7")
+test lr_lnrusdtlpos = lr_lnrusdtlneg
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand lnwind lnriver L.wvol mpr covid  i.gvrn i.month weekend i.year, lr(L(1/30).lnrptftl L.lnrusdtlpos L.lnrusdtlneg L.lnrttf) nocross lr_options(ardl)
+est sto nardl81, title("Model 8")
+test lr_lnrusdtlpos = lr_lnrusdtlneg
+
+** Now, test with further models and extend them, we take higher lags for rptftl
+xi: qui xtdcce2 lnrptftl lnresdemand lnwind lnriver L.wvol  mpr covid i.gvrn i.month weekend i.year, lr(L(1/30).lnrptftl L(1/7).lnrusdtlpos L(1/7).lnrusdtlneg L(1/7).lnrttf) nocross lr_options(ardl)
+est sto nardl91, title("Model 9")
+test lr_lnrusdtlpos = lr_lnrusdtlneg
+
+cd "H:\PhDThesis\ExchangeRateAnalysis\Section 4 ARDL Panel Analysis\" 
+estout nardl11 nardl21 nardl31 nardl41 nardl51 nardl61 nardl71 nardl81 nardl91 using panel_nardl_ngas_results.txt, style(tex) cells(b(star fmt(3)) se(par fmt(2))) stats(r2 r2_pmg rmse N) label legend replace
+
 
