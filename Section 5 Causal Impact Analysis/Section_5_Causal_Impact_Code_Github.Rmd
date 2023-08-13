@@ -1,0 +1,388 @@
+---
+title: "Section_5_Causal_Impact_Code"
+output: html_document
+date: "2023-08-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Counterfactual Analysis
+
+For this analysis, we will use Bayesian Time Series Analysis to create counterfactural prices. Therefore, we use ENTSOE data
+
+```{r}
+library(tidyverse)
+library(CausalImpact)
+library(readr)
+library(conflicted)
+library(lubridate)
+library(readxl)
+conflicts_prefer(lubridate::year)
+conflicts_prefer(lubridate::month)
+conflicts_prefer(lubridate::hour)
+conflicts_prefer(dplyr::filter)
+library(readr)
+section_5_causal_impact_analysis <- read_csv("D:/OneDrive - The University of Western Ontario/Akademik/Exchange Rate - Bidding Behavior/ExchangeRateBiddingBehavior_Codes/section_5_causal_impact_analysis.csv")
+```
+
+
+
+```{r}
+## Write a function to prepare the results and graphs
+
+causal_impact_table <- function(event.date,
+                                indata = entso_prices_average,
+                                start.date = 50, 
+                                end.date = 25, 
+                                prior  = 0.05, 
+                                niteration = 5000,
+                                type = "Original"){
+  require(CausalImpact)
+  require(lubridate)
+  event_date <- ymd(event.date) 
+  start_date <- event_date - days(start.date)
+  end_date <- event_date + days(end.date) 
+  preperiod <- c(1,start.date)
+  postperiod <- c(start.date+1, start.date + end.date) 
+  
+  causal_shock_df <-  indata %>% 
+  filter(DATE >= start_date & DATE <= end_date ) %>% 
+  select(-DATE, -CZ, -IE_SEM, -USDTL) %>% zoo()
+
+  causal_shock_mod  <- causal_shock_df %>% CausalImpact(data = .,
+                                   pre.period = preperiod,
+                                   post.period = postperiod,
+                                   model.args = list(niter = niteration,
+                                                     prior.level.sd = prior,
+                                                     nseasons = 7, 
+                                                     standardize.data = TRUE,
+                                                     season.duration = 1))
+
+
+  causal_shock_sum <- causal_shock_mod  %>% 
+  .$summary %>% 
+  t() %>% data.frame(.) %>% rownames_to_column(.,"Variable") %>% 
+  select(-Cumulative) %>% 
+  mutate(Date = event_date,
+         Type = type,
+         Average = round(Average,3))
+  
+  return(causal_shock_sum)
+}
+
+```
+
+
+```{r}
+causal_impact_plot<- function(event.date,
+                              indata = entso_prices_average,
+                              start.date = 50, 
+                              end.date = 25,
+                              prior  = 0.05, 
+                              niteration = 5000,
+                              type = "Original"){
+  event_date <- ymd(event.date) 
+  start_date <- event_date - days(start.date)
+  end_date <- event_date + days(end.date) 
+  preperiod <- c(1,start.date)
+  postperiod <- c(start.date+1, start.date + end.date) 
+  
+  causal_shock_df <-  indata %>% 
+  filter(DATE >= start_date & DATE <= end_date ) %>% 
+  select(-DATE, -CZ, -IE_SEM, -USDTL) %>% zoo()
+
+  causal_shock_mod  <- causal_shock_df %>% CausalImpact(data = .,
+                                   pre.period = preperiod,
+                                   post.period = postperiod,
+                                   model.args = list(niter = niteration,
+                                                     prior.level.sd = prior,
+                                                     nseasons = 7, 
+                                                     standardize.data = TRUE,
+                                                     season.duration = 1))
+
+
+  causal_plot <- plot(causal_shock_mod, c("original", "pointwise")) + 
+    labs(title = event_date) + ylab("TL/MWh") + xlab("Days") + 
+    theme_bw(base_size = 15)
+  
+  return(causal_plot)
+}
+
+```
+
+
+```{r}
+date_list <- list("2019-07-06","2019-07-25","2019-09-12", "2019-10-24",
+                  "2019-12-12","2020-01-16", "2020-02-19", "2020-09-24",  
+                   "2020-11-07", "2020-11-19", "2020-12-24",
+                  "2021-03-18",
+                  "2021-09-23", "2021-10-21", "2021-11-18", "2021-12-16")
+
+```
+
+
+```{r}
+library(purrr)
+causal_impact_results <- map_dfr(date_list,
+                                  causal_impact_table)
+```
+
+
+```{r}
+library(purrr)
+map(date_list, causal_impact_plot)
+```
+
+###########################################################################################
+### Now do the same for robustness analysis with hyperparameter tuned to 0.10 and number of iterations are 5000
+
+```{r}
+## Write a function to prepare the results and graphs
+
+causal_impact_table_rb <- function(event.date,
+                                indata = entso_prices_average,
+                                start.date = 50, 
+                                end.date = 25, 
+                                prior  = 0.10, 
+                                type = "Original"){
+  require(CausalImpact)
+  require(lubridate)
+  event_date <- ymd(event.date) 
+  start_date <- event_date - days(start.date)
+  end_date <- event_date + days(end.date) 
+  preperiod <- c(1,start.date)
+  postperiod <- c(start.date+1, start.date + end.date) 
+  
+  causal_shock_df <-  indata %>% 
+  filter(DATE >= start_date & DATE <= end_date ) %>% 
+  select(-DATE, -CZ, -IE_SEM, -USDTL) %>% zoo()
+
+  causal_shock_mod  <- causal_shock_df %>% CausalImpact(data = .,
+                                   pre.period = preperiod,
+                                   post.period = postperiod,
+                                   model.args = list(niter = 5000,
+                                                     prior.level.sd = prior,
+                                                     nseasons = 7, 
+                                                     standardize.data = TRUE,
+                                                     season.duration = 1))
+
+
+  causal_shock_sum <- causal_shock_mod  %>% 
+  .$summary %>% 
+  t() %>% data.frame(.) %>% rownames_to_column(.,"Variable") %>% 
+  select(-Cumulative) %>% 
+  mutate(Date = event_date,
+         Type = type,
+         Average = round(Average,3))
+  
+  return(causal_shock_sum)
+}
+
+```
+
+```{r}
+library(purrr)
+causal_impact_results_rb <- map_dfr(date_list,
+                                  causal_impact_table_rb)
+```
+
+```{r}
+causal_impact_results_org_rb <- causal_impact_results_rb %>% 
+  filter(Type == "Original") %>% 
+  pivot_wider(names_from = Variable, values_from = Average) %>% 
+  mutate(Sig = ifelse(p <= 0.05, 1, 0.2),
+         RelEffect = 100*RelEffect) %>% 
+  left_join(ttable_exc) %>%  arrange(Date) 
+```
+
+```{r}
+## Get Complete table for latex
+library(xtable)
+causal_impact_results_org_rb %>% 
+  select(Date, DEXC, Actual, Pred, Pred.lower, Pred.upper, RelEffect, RelEffect.lower, RelEffect.upper, p) %>% 
+  mutate(Date = as.character(Date)) %>% 
+  xtable(caption ="Causal Analysis Robustness") %>% print(include.rownames = FALSE)
+```
+
+
+```{r}
+library(ggplot2)
+library(ggthemes)
+library(bbplot)
+library(plotrix)
+causal_impact_results_org_rb %>% ggplot(aes(x= as.factor(Date))) +
+  geom_point(aes(y = RelEffect, alpha = Sig, fill = "MCP") , size = 3, shape = 22) +
+  geom_point(aes(y = DEXC, alpha = EXC.SIG, fill = "EXC") , size = 3, shape = 21) +
+  theme_hc() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 13),
+                     legend.text=element_text(size=14),
+                     axis.text.y = element_text(size = 14),
+                     axis.title.y = element_text(size = 14),
+                     axis.title.x = element_text(size = 12)) +
+  scale_y_continuous(limits = c(-20, 120), breaks = c(seq(-20,120,20))) +
+  ylab("Mean difference (%)") + xlab("Date") +
+  scale_fill_manual(name = "Variables",
+                     breaks = c("EXC", "MCP"),
+                     values = c("EXC" = "red", "MCP" = "navyblue")) +
+  guides(alpha = FALSE) + labs(caption = "Bold color indicates statistically significant results  at p-value of 0.05", subtitle = "Robustness Check")
+  
+```
+
+
+
+#######################################################################
+
+###############################################################################
+Synthetic Difference-in-Difference
+
+
+```{r}
+# Install and load the required packages
+##devtools::install_github("synth-inference/synthdid", force = TRUE)
+library(synthdid)
+library(ggplot2)
+library(data.table)
+set.seed(12345)
+```
+
+```{r}
+## Setup the panel model
+start_date <- "2021-04-30"
+end_date <- "2022-02-24"
+
+mmp_change_data <- entso_prices_average %>% 
+  filter(DATE > start_date & DATE < end_date) %>% 
+  select(-CZ, -IE_SEM, -USDTL, -DEMAND, -TTF, -WIND, -RIVER, -NGASSTOCK) %>% 
+  pivot_longer(cols = PTFTL:SE_4, names_to = "MARKET", values_to = "PRICE") %>% 
+  mutate(MMP1 = ifelse(MARKET == "PTFTL" & DATE > "2021-09-22", 1, 0),
+         MMP2 = ifelse(MARKET == "PTFTL" & DATE > "2021-10-20", 1, 0),
+         MMP3 = ifelse(MARKET == "PTFTL" & DATE > "2021-11-17", 1, 0),
+         MMP4 = ifelse(MARKET == "PTFTL" & DATE > "2021-12-15", 1, 0),
+         KKM = ifelse(MARKET == "PTFTL" & DATE > "2021-12-15", 1, 0))
+
+```
+
+```{r}
+## Setup the first intervention
+event_date <- ymd("2021-09-22")
+start_date <- event_date - days(50)
+end_date <- event_date + days(25) 
+
+
+setup1 = mmp_change_data %>% filter(DATE >= start_date & DATE <= end_date) %>%  
+  select(MARKET, DATE, PRICE, MMP1) %>% 
+  as.data.frame(as_tibble(.)) %>% 
+  panel.matrices(., unit = 1, time = 2, outcome = 3, treatment = 4)
+
+tau.hat1= synthdid_estimate(setup1$Y, setup1$N0, setup1$T0)
+# Calculate standard errors 
+se1 = sqrt(vcov(tau.hat1, method = 'placebo'))
+te_est1 <- sprintf('Point estimate for the treatment effect: %1.2f', tau.hat1)
+CI <- sprintf('95%% CI (%1.2f, %1.2f)', tau.hat1 - 1.96 * se1, tau.hat1 + 1.96 * se1)
+
+```
+
+```{r}
+## Create plot  the intervention
+top.controls = synthdid_controls(tau.hat1)[1:6, , drop=FALSE]
+plot(tau.hat1, spaghetti.units=rownames(top.controls),
+     trajectory.linetype = 1, line.width=1, 
+     trajectory.alpha=1, effect.alpha=.9,
+     diagram.alpha=1, onset.alpha=.9, ci.alpha = .3, spaghetti.line.alpha =.2,
+     spaghetti.label.alpha = .1, overlay = 1) + 
+  labs(x = 'Date', y = 'Price (TL/MWh)', title = 'Synth-DID Estimation Results: 23-09-21')
+```
+
+
+```{r}
+## Setup the second intervention
+event_date <- ymd("2021-10-21")
+start_date <- event_date - days(50)
+end_date <- event_date + days(25) 
+
+setup2 = mmp_change_data %>% select(MARKET, DATE, PRICE, MMP2) %>% 
+  filter(DATE >= start_date & DATE <= end_date) %>%  
+  as.data.frame(as_tibble(.)) %>% 
+  panel.matrices(., unit = 1, time = 2, outcome = 3, treatment = 4)
+
+tau.hat2 = synthdid_estimate(setup2$Y, setup2$N0, setup2$T0)
+# Calculate standard errors 
+se2 = sqrt(vcov(tau.hat2, method = 'placebo'))
+te_est2 <- sprintf('Point estimate for the treatment effect: %1.2f', tau.hat2)
+CI <- sprintf('95%% CI (%1.2f, %1.2f)', tau.hat2 - 1.96 * se2, tau.hat2 + 1.96 * se2)
+
+```
+
+```{r}
+## Create plot for the 2nd intervention intervention
+top.controls = synthdid_controls(tau.hat2)[1:7, , drop=FALSE]
+plot(tau.hat2, spaghetti.units=rownames(top.controls),
+     trajectory.linetype = 1, line.width=1, 
+     trajectory.alpha=1, effect.alpha=.9,
+     diagram.alpha=1, onset.alpha=.9, ci.alpha = .3, spaghetti.line.alpha =.2,
+     spaghetti.label.alpha = .1, overlay = 1) + 
+  labs(x = 'Date', y = 'Price (TL/MWh)', title = 'Synth-DID Estimation Results: 21-10-21')
+```
+
+
+
+```{r}
+## Setup the third intervention
+event_date <- ymd("2021-11-18")
+start_date <- event_date - days(50)
+end_date <- event_date + days(25) 
+
+setup3 = mmp_change_data %>% select(MARKET, DATE, PRICE, MMP3) %>% 
+  filter(DATE >= start_date & DATE <= end_date) %>%  
+  as.data.frame(as_tibble(.)) %>% 
+  panel.matrices(., unit = 1, time = 2, outcome = 3, treatment = 4)
+
+tau.hat3 = synthdid_estimate(setup3$Y, setup3$N0, setup3$T0)
+# Calculate standard errors 
+se3 = sqrt(vcov(tau.hat3, method = 'placebo'))
+te_est3 <- sprintf('Point estimate for the treatment effect: %1.2f', tau.hat3)
+CI <- sprintf('95%% CI (%1.2f, %1.2f)', tau.hat3 - 1.96 * se3, tau.hat3 + 1.96 * se3)
+
+```
+
+```{r}
+## Create plot for the 3rd intervention intervention
+top.controls = synthdid_controls(tau.hat3)[1:5, , drop=FALSE]
+plot(tau.hat3, spaghetti.units=rownames(top.controls),
+     trajectory.linetype = 1, line.width=1, 
+     trajectory.alpha=1, effect.alpha=.9,
+     diagram.alpha=1, onset.alpha=.9, ci.alpha = .3, spaghetti.line.alpha =.2,
+     spaghetti.label.alpha = .1, overlay = 1) + 
+  labs(x = 'Date', y = 'Price (TL/MWh)', title = 'Synth-DID Estimation Results: 18-11-21')
+```
+
+```{r}
+## Setup the fourth intervention
+event_date <- ymd("2021-12-16")
+start_date <- event_date - days(50)
+end_date <- event_date + days(25) 
+
+setup4 = mmp_change_data %>% select(MARKET, DATE, PRICE, MMP4) %>% 
+  filter(DATE >= start_date & DATE <= end_date) %>%  
+  as.data.frame(as_tibble(.)) %>% 
+  panel.matrices(., unit = 1, time = 2, outcome = 3, treatment = 4)
+
+tau.hat4 = synthdid_estimate(setup4$Y, setup4$N0, setup4$T0)
+# Calculate standard errors 
+se4 = sqrt(vcov(tau.hat4, method = 'placebo'))
+te_est4 <- sprintf('Point estimate for the treatment effect: %1.2f', tau.hat4)
+CI <- sprintf('95%% CI (%1.2f, %1.2f)', tau.hat4 - 1.96 * se4, tau.hat4 + 1.96 * se4)
+
+```
+
+```{r}
+## Create plot for the 4rd intervention intervention
+top.controls = synthdid_controls(tau.hat4)[1:4, , drop = FALSE]
+plot(tau.hat4, spaghetti.units = rownames(top.controls),
+     trajectory.linetype = 1, line.width=1, 
+     trajectory.alpha=1, effect.alpha=.9,
+     diagram.alpha=1, onset.alpha=.9, ci.alpha = .3, spaghetti.line.alpha =.2,
+     spaghetti.label.alpha = .1, overlay = 1) + 
+  labs(x = 'Date', y = 'Price (TL/MWh)', title = 'Synth-DID Estimation Results: 16-12-21')
+```
